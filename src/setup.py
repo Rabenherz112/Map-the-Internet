@@ -103,6 +103,8 @@ if __name__ == "__main__":
 
     # Ask for the initial link
     initial_url = input("Enter the initial URL to start the crawl: ").strip()
+    if not initial_url.endswith("/"):
+        initial_url += "/"
     if initial_url:
         add_initial_link(conn, initial_url)
 

@@ -55,7 +55,11 @@ def execute_with_retry(cursor, query, params=None, retries=3, delay=1):
 def queue_link(conn, url):
     try:
         parsed_url = urlparse(url)
-        cleaned_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, '', '', ''))
+        path = parsed_url.path
+        # Add trailing slash if the path is empty or doesn't end with a slash and isn't a file
+        if not path or not path.endswith('/'):
+            path = path + '/' if '.' not in path.split('/')[-1] else path
+        cleaned_url = urlunparse((parsed_url.scheme, parsed_url.netloc, path, '', '', ''))
         cursor = conn.cursor()
         execute_with_retry(cursor, "INSERT IGNORE INTO link_queue (url, status) VALUES (?, 'pending')", (cleaned_url,))
         rows_affected = cursor.rowcount
@@ -64,6 +68,7 @@ def queue_link(conn, url):
     except mariadb.Error as e:
         logging.error(f"Error inserting link into queue: {e}")
         return False
+
 
 # Fetch the next pending link
 def fetch_next_pending_link(conn):
