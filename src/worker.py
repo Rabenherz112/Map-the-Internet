@@ -144,7 +144,7 @@ def extract_links_from_page(base_url):
             absolute_url = urljoin(base_url, href)
             parsed_url = urlparse(absolute_url)
             if parsed_url.scheme in ["http", "https"]:
-                if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm"]):
+                if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".cfm", ".shtml", ".xhtml", ".rhtml", ".phtml", ".cgi", ".pl"]):
                     links.add(absolute_url)
 
         return links
