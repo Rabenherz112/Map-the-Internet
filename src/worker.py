@@ -15,7 +15,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Configure custom User-Agent
-USER_AGENT = "MapWWWBot/1.0 (+http://map-the-internet.theravenhub.com/botinfo)"
+USER_AGENT = "Mozilla/5.0 (compatible; MapWWWBot/1.0; +http://map-the-internet.theravenhub.com/botinfo)"
 HEADERS = {"User-Agent": USER_AGENT, "Accept": "*/*"}
 
 # Database connection setup
@@ -252,7 +252,7 @@ def store_domain_and_relationship(conn, parent_url, child_url, domain_link_limit
 
 # Process a single link
 def process_single_link(conn, link, domain_link_limit):
-    logging.info(f"Processing link: {link}")
+    logging.debug(f"Processing link: {link}")
     links = extract_links_from_page(link)
     if links is None:
         update_link_status(conn, link, 'unreachable')
