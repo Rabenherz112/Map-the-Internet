@@ -1,97 +1,131 @@
-from dotenv import load_dotenv
-import os
-import mariadb
 import networkx as nx
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+import mariadb
+import os
+from dotenv import load_dotenv
 from datetime import datetime
-import logging
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
 # Database connection setup
-def connect_to_db():
+def establish_db_connection():
     try:
-        conn = mariadb.connect(
+        return mariadb.connect(
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASSWORD"),
             host=os.getenv("DB_HOST"),
             port=int(os.getenv("DB_PORT")),
-            database=os.getenv("DB_NAME")
+            database=os.getenv("DB_NAME"),
         )
-        return conn
     except mariadb.Error as e:
-        logging.error(f"Error connecting to MariaDB: {e}")
+        print(f"Error connecting to MariaDB: {e}")
         raise
 
-# Fetch domain relationships from the database
-def fetch_relationships(conn):
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT parent_id, child_id FROM domain_relationships")
-        relationships = cursor.fetchall()
+# Fetch data from MariaDB
+def fetch_graph_data(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT parent_id, child_id FROM domain_relationships")
+    relationships = cursor.fetchall()
 
-        cursor.execute("SELECT id, domain FROM domains")
-        domains = {row[0]: row[1] for row in cursor.fetchall()}
+    cursor.execute("SELECT id, domain FROM domains")
+    domains = cursor.fetchall()
 
-        return relationships, domains
-    except mariadb.Error as e:
-        logging.error(f"Error fetching relationships: {e}")
-        return [], {}
+    return relationships, {id: domain for id, domain in domains}
 
-# Create and save the visualization
-def create_visualisation(relationships, domains, output_file):
-    G = nx.Graph()
+# Generate graph visualization
+def generate_graph(relationships, domain_map):
+    G = nx.DiGraph()
 
-    # Add nodes with domain names
-    for domain_id, domain_name in domains.items():
-        G.add_node(domain_id, label=domain_name)
+    # Add nodes and edges
+    for domain_id, domain in domain_map.items():
+        G.add_node(domain, size=0)
 
-    # Add edges based on relationships, excluding self-loops
     for parent_id, child_id in relationships:
-        if parent_id in domains and child_id in domains and parent_id != child_id:
-            G.add_edge(parent_id, child_id)
+        parent_domain = domain_map.get(parent_id)
+        child_domain = domain_map.get(child_id)
+        if parent_domain and child_domain:
+            G.add_edge(parent_domain, child_domain)
+            G.nodes[parent_domain]["size"] += 1
 
-    # Node sizes based on the number of incoming edges
-    node_sizes = [G.degree(node) * 100 for node in G.nodes]
+    # Remove nodes with fewer than 2 parent connections
+    nodes_to_remove = [node for node, data in G.nodes(data=True) if data["size"] < 2]
+    G.remove_nodes_from(nodes_to_remove)
 
-    # Generate spring layout
-    pos = nx.spring_layout(G, seed=42)
+    return G
 
-    # Create the plot
-    plt.figure(figsize=(20, 20), dpi=1200)
-    nx.draw(
-        G,
-        pos,
-        labels={node: G.nodes[node]['label'] for node in G.nodes},
-        with_labels=True,
-        node_size=node_sizes,
-        font_size=8,
-        font_color="black",
-        font_weight="bold",
-        edge_color="gray"
+# Create Plotly visualization
+def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
+    pos = nx.spring_layout(G, k=0.1, seed=42)  # Force-directed layout with consistent seed
+
+    # Prepare node trace
+    node_x = []
+    node_y = []
+    node_sizes = []
+    node_text = []
+    for node, (x, y) in pos.items():
+        node_x.append(x)
+        node_y.append(y)
+        node_size = G.nodes[node]["size"] * 10 + 5
+        node_sizes.append(node_size)
+        node_text.append(node)
+
+    # Adjust sizes to avoid overlap
+    sizeref = 2.0 * max(node_sizes) / (100.0 ** 2)
+
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode="markers",
+        marker=dict(
+            size=node_sizes,
+            color=node_sizes,
+            colorscale="Viridis",
+            showscale=True,
+            sizemode="area",
+            sizeref=sizeref
+        ),
+        text=node_text,
+        hoverinfo="text"
     )
 
-    # Add watermark
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    watermark = f"Map the Internet Project - Rabenherz112\nGenerated: {timestamp}"
-    plt.text(0.99, 0.01, watermark, fontsize=10, color="gray", ha='right', va='bottom', transform=plt.gcf().transFigure)
+    # Add watermark text
+    watermark_text = "Map the Internet Project - Rabenher112 - 2025\nGenerated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    annotation_bottom_right = dict(
+        xref="paper", yref="paper",
+        x=1, y=-0.1,  # Position at the bottom-right corner
+        text=watermark_text,
+        showarrow=False,
+        font=dict(size=12, color="grey"),
+        xanchor="right", yanchor="bottom"
+    )
 
-    # Save the high-resolution image
-    plt.savefig(output_file, bbox_inches="tight")
-    plt.close()
-    logging.info(f"Graph saved as {output_file}")
+    # Create figure with dark theme
+    fig = go.Figure(data=[node_trace],
+                    layout=go.Layout(
+                        title="Map the Internet",
+                        showlegend=False,
+                        hovermode="closest",
+                        #template="plotly_dark",
+                        margin=dict(b=0, l=0, r=0, t=40),
+                        xaxis=dict(showgrid=False, zeroline=False, visible=False),
+                        yaxis=dict(showgrid=False, zeroline=False, visible=False),
+                        annotations=[annotation_bottom_right]))
+
+    # Save to HTML and PNG
+    fig.write_html(output_html)
+    fig.write_image(output_png, width=4096, height=2304)
+
+# Main function
+def main():
+    conn = establish_db_connection()
+    try:
+        relationships, domain_map = fetch_graph_data(conn)
+        G = generate_graph(relationships, domain_map)
+        create_plotly_graph(G)
+        print("Graph generated successfully.")
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
-    conn = connect_to_db()
-    relationships, domains = fetch_relationships(conn)
-
-    if relationships and domains:
-        create_visualisation(relationships, domains, "domain_relationship_graph.png")
-    else:
-        logging.error("No data available to create visualization.")
-
-    conn.close()
+    main()
