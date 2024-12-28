@@ -48,10 +48,6 @@ def execute(conn, query, params=None):
             data = cursor.fetchone()
         except mariadb.Error as e:
             pass
-        #cur = conn.cursor()
-        #cur.execute("SHOW TABLES")
-        #conn.commit()
-        #return { info = meta like rowcount, data = cursor.fetchone() } 
         return {
             'rowcount': rowcount,
             'data': data
@@ -63,25 +59,6 @@ def execute(conn, query, params=None):
             logging.error(f"Database error: {e}")
             return False
 
-# Executes a query with retry logic to handle deadlocks
-def execute_with_retry(cursor, query, params=None, retries=3, delay=1):
-    for attempt in range(retries):
-        try:
-            if params:
-                cursor.execute(query, params)
-            else:
-                cursor.execute(query)
-            return True
-        except mariadb.Error as e:
-            if "Deadlock found" in str(e):
-                logging.warning(f"Deadlock detected on attempt {attempt + 1}. Retrying...")
-                time.sleep(delay)
-            else:
-                logging.error(f"Database error: {e}")
-                return False
-    logging.error("Failed to execute query after retries.")
-    return False
-
 # Add a new link to the queue
 def queue_link(conn, url):
     try:
@@ -90,15 +67,10 @@ def queue_link(conn, url):
         # Add trailing slash if the path is empty or doesn't end with a slash and isn't a file
         if not path or not path.endswith('/'):
             path = path + '/' if '.' not in path.split('/')[-1] else path
+        # Remove query parameters and fragments
         cleaned_url = urlunparse((parsed_url.scheme, parsed_url.netloc, path, '', '', ''))
-        #cursor = conn.cursor()
-        #execute_with_retry(cursor, "INSERT IGNORE INTO link_queue (url, status) VALUES (?, 'pending')", (cleaned_url,))
-        #rows_affected = cursor.rowcount
-        #conn.commit()
-        
         result = execute(conn, "INSERT IGNORE INTO link_queue (url, status) VALUES (?, 'pending')", (cleaned_url,))
         rows_affected = result["rowcount"]
-        
         return rows_affected > 0
     except mariadb.Error as e:
         logging.error(f"Error inserting link into queue: {e}")
@@ -108,16 +80,9 @@ def queue_link(conn, url):
 # Fetch the next pending link
 def fetch_next_pending_link(conn):
     try:
-        #cursor = conn.cursor()
-        #execute_with_retry(cursor, "SELECT url FROM link_queue WHERE status = 'pending' LIMIT 1")
-        #result = cursor.fetchone()
-        
         result = execute(conn, "SELECT url FROM link_queue WHERE status = 'pending' LIMIT 1")
         if result:
             url = result["data"][0]
-            #execute_with_retry(cursor, "UPDATE link_queue SET status = 'processing' WHERE url = ?", (url,))
-            #conn.commit()
-            
             execute(conn, "UPDATE link_queue SET status = 'processing' WHERE url = ?", (url,))
             return url
         return None
@@ -128,9 +93,6 @@ def fetch_next_pending_link(conn):
 # Update link status
 def update_link_status(conn, url, status):
     try:
-        #cursor = conn.cursor()
-        #execute_with_retry(cursor, "UPDATE link_queue SET status = ? WHERE url = ?", (status, url))
-        #conn.commit()
         execute(conn, "UPDATE link_queue SET status = ? WHERE url = ?", (status, url))
     except mariadb.Error as e:
         logging.error(f"Error updating link status to '{status}': {e}")
@@ -191,7 +153,6 @@ def extract_links_from_page(base_url):
             if parsed_url.scheme in ["http", "https"]:
                 # Check if the URL is valid
                 if not validators.url(absolute_url):
-                    # not valid, skip
                     logging.warning(f"Malformed URL detected: {absolute_url}")
                     continue
                 # Check if the URL is a valid type
@@ -205,30 +166,16 @@ def extract_links_from_page(base_url):
 # Add domains and relationships to the database
 def store_domain_and_relationship(conn, parent_url, child_url, domain_link_limit):
     try:
-        #cursor = conn.cursor()
-
         parent_domain = urlparse(parent_url).netloc
-        #execute_with_retry(cursor, "INSERT IGNORE INTO domains (domain) VALUES (?)", (parent_domain,))
-        #execute_with_retry(cursor, "SELECT id FROM domains WHERE domain = ?", (parent_domain,))
-        #parent_id = cursor.fetchone()[0]
-        
         execute(conn, "INSERT IGNORE INTO domains (domain) VALUES (?)", (parent_domain,))
         result = execute(conn, "SELECT id FROM domains WHERE domain = ?", (parent_domain,))
-        # TODO: Check if 'result.data[0].id' is required?
         parent_id = result["data"][0]
 
         child_domain = urlparse(child_url).netloc
-        #cursor.execute("SELECT id, processed_links FROM domains WHERE domain = ?", (child_domain,))
-        #child_domain_data = cursor.fetchone()
-        
         result = execute(conn, "SELECT id, processed_links FROM domains WHERE domain = ?", (child_domain,))
         child_domain_data = result["data"]
 
         if not child_domain_data:
-            #execute_with_retry(cursor, "INSERT IGNORE INTO domains (domain) VALUES (?)", (child_domain,))
-            #execute_with_retry(cursor, "SELECT id, processed_links FROM domains WHERE domain = ?", (child_domain,))
-            #child_id, child_processed_links = cursor.fetchone()
-            
             execute(conn, "INSERT IGNORE INTO domains (domain) VALUES (?)", (child_domain,))
             result = execute(conn, "SELECT id, processed_links FROM domains WHERE domain = ?", (child_domain,))
             child_id, child_processed_links = result["data"]
@@ -242,9 +189,6 @@ def store_domain_and_relationship(conn, parent_url, child_url, domain_link_limit
         link_added = queue_link(conn, child_url)
 
         if link_added:
-            #execute_with_retry(cursor, "INSERT IGNORE INTO domain_relationships (parent_id, child_id) VALUES (?, ?)", (parent_id, child_id))
-            #execute_with_retry(cursor, "UPDATE domains SET processed_links = processed_links + 1 WHERE id = ?", (child_id,))
-            #conn.commit()
             execute(conn, "INSERT IGNORE INTO domain_relationships (parent_id, child_id) VALUES (?, ?)", (parent_id, child_id))
             execute(conn, "UPDATE domains SET processed_links = processed_links + 1 WHERE id = ?", (child_id,))
     except mariadb.Error as e:
@@ -264,12 +208,13 @@ def process_single_link(conn, link, domain_link_limit):
 if __name__ == "__main__":
     conn = establish_db_connection()
 
-    #cursor = conn.cursor()
-    #cursor.execute("SELECT value FROM settings WHERE name = 'domain_link_limit'")
-    #result = cursor.fetchone()
+    # Get the domain link limit setting
     result = execute(conn, "SELECT value FROM settings WHERE name = 'domain_link_limit'")
     result = result["data"]
     domain_link_limit = int(result[0]) if result else 0
+
+    counter = 0
+    start_time = time.time()
 
     while True:
         next_link = fetch_next_pending_link(conn)
@@ -279,5 +224,14 @@ if __name__ == "__main__":
 
         process_single_link(conn, next_link, domain_link_limit)
         update_link_status(conn, next_link, 'done')
+
+        counter += 1
+
+        # Log every 10 minutes
+        current_time = time.time()
+        if current_time - start_time >= 600:
+            logging.info(f"Processed {counter} URLs in the last 10 minutes.")
+            counter = 0
+            start_time = current_time
 
     conn.close()
