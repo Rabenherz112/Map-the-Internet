@@ -140,28 +140,45 @@ def extract_links_from_page(base_url):
         logging.info(f"Crawling disallowed by robots.txt for {base_url}")
         return None
 
-    try:
-        response = requests.get(base_url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
+    def fetch_and_parse(url, retried=False):
+        """Helper function to fetch and parse a URL."""
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            return soup
+        except requests.HTTPError as e:
+            if response.status_code == 404 and url.endswith('/') and not retried:
+                # Retry without the trailing slash - some servers return 404 for URLs with trailing slashes, since we add them in queue_link function, we can't be sure if the URL is valid (even though web servers should handle this correctly)
+                logging.debug(f"404 for {url}. Retrying without trailing slash.")
+                new_url = url.rstrip('/')
+                return fetch_and_parse(new_url, retried=True)
+            logging.error(f"HTTPError for {url}: {e}")
+            return None
+        except requests.RequestException as e:
+            logging.error(f"Error fetching {url}: {e}")
+            return None
 
-        links = set()
-        for a_tag in soup.find_all('a', href=True):
-            href = a_tag['href']
-            absolute_url = urljoin(base_url, href)
-            parsed_url = urlparse(absolute_url)
-            if parsed_url.scheme in ["http", "https"]:
-                # Check if the URL is valid
-                if not validators.url(absolute_url):
-                    logging.warning(f"Malformed URL detected: {absolute_url}")
-                    continue
-                # Check if the URL is a valid type
-                if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".cfm", ".shtml", ".xhtml", ".rhtml", ".phtml", ".cgi", ".pl"]):
-                    links.add(absolute_url)
-        return links
-    except requests.RequestException as e:
-        logging.error(f"Error fetching {base_url}: {e}")
+    soup = fetch_and_parse(base_url)
+    if not soup:
         return None
+
+    links = set()
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href']
+        absolute_url = urljoin(base_url, href)
+        parsed_url = urlparse(absolute_url)
+        if parsed_url.scheme in ["http", "https"]:
+            # Check if the URL is valid
+            # TODO: Check why some normal URLs are being flagged as invalid and fix the issue
+            # Examples: https://www.instructure.com/resources/product-overviews/enhanced-rubrics , https://www.deimeke.net/dirk/blog/index.php?/categories/31-fundstuecke , etc.
+            if not validators.url(absolute_url):
+                logging.warning(f"Malformed URL detected: {absolute_url}")
+                continue
+            # Check if the URL is a valid type
+            if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".cfm", ".shtml", ".xhtml", ".rhtml", ".phtml", ".cgi", ".pl"]):
+                links.add(absolute_url)
+    return links
 
 # Add domains and relationships to the database
 def store_domain_and_relationship(conn, parent_url, child_url, domain_link_limit):
@@ -215,6 +232,9 @@ if __name__ == "__main__":
 
     counter = 0
     start_time = time.time()
+
+    logging.info("Starting link processing...")
+    logging.info("You will recieve an update every 10 minutes.")
 
     while True:
         next_link = fetch_next_pending_link(conn)

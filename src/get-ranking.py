@@ -43,7 +43,7 @@ def fetch_top_domains(conn):
     except mariadb.Error as e:
         logging.error(f"Error fetching top domains: {e}")
         return []
-    
+
 # Search for a specific domain and its ranking
 def search_domain_with_ranking(conn, domain):
     try:
@@ -73,7 +73,7 @@ def main():
     conn = establish_db_connection()
     try:
         choice = input("Enter '1' to display top 50 domains or '2' to search for a domain: ").strip()
-        
+
         if choice == '1':
             logging.info("Fetching top 50 domains by parent connections...")
             top_domains = fetch_top_domains(conn)

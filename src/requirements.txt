@@ -1,0 +1,9 @@
+dotenv
+mariadb
+logging
+networkx
+plotly
+requests
+bs4
+urllib
+validators

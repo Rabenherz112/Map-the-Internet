@@ -97,6 +97,19 @@ def set_domain_link_limit(conn, limit):
         logging.error(f"Error setting domain link limit: {e}")
         conn.rollback()
 
+# Ask for custom rules
+def ask_for_rules(conn):
+    while True:
+        try:
+            domain_link_limit = int(input("Enter the maximum number of links to scan per domain (0 for unlimited): ").strip())
+            if domain_link_limit >= 0:
+                set_domain_link_limit(conn, domain_link_limit)
+                break
+            else:
+                print("Please enter a non-negative integer.")
+        except ValueError:
+            print("Invalid input. Please enter an integer.")
+
 if __name__ == "__main__":
     conn = connect_to_db()
     setup_tables(conn)
@@ -108,16 +121,11 @@ if __name__ == "__main__":
     if initial_url:
         add_initial_link(conn, initial_url)
 
-    # Ask for the domain link limit
-    while True:
-        try:
-            domain_link_limit = int(input("Enter the maximum number of links to scan per domain (0 for unlimited): ").strip())
-            if domain_link_limit >= 0:
-                set_domain_link_limit(conn, domain_link_limit)
-                break
-            else:
-                print("Please enter a non-negative integer.")
-        except ValueError:
-            print("Invalid input. Please enter an integer.")
+    # Ask if default rules should be used
+    default_rules = input("Use default config rules? (y/n): ").strip().lower()
+    if default_rules == "y":
+        set_domain_link_limit(conn, 3500)
+    else:
+        ask_for_rules(conn)
 
     conn.close()

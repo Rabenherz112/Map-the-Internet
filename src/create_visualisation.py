@@ -52,6 +52,11 @@ def generate_graph(relationships, domain_map):
     nodes_to_remove = [node for node, data in G.nodes(data=True) if data["size"] < 2]
     G.remove_nodes_from(nodes_to_remove)
 
+    # Calculate rankings based on size
+    ranked_nodes = sorted(G.nodes(data=True), key=lambda x: x[1]["size"], reverse=True)
+    for rank, (node, data) in enumerate(ranked_nodes, start=1):
+        G.nodes[node]["rank"] = rank
+
     return G
 
 # Create Plotly visualization
@@ -63,12 +68,16 @@ def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
     node_y = []
     node_sizes = []
     node_text = []
+    node_customdata = []
     for node, (x, y) in pos.items():
         node_x.append(x)
         node_y.append(y)
         node_size = G.nodes[node]["size"] * 10 + 5
         node_sizes.append(node_size)
         node_text.append(node)
+        node_customdata.append(
+            f"<b>Domain: {node}</b><br>Ranking: #{G.nodes[node]['rank']}<br>Parent Connections: {G.nodes[node]['size']}<br>Child Connections: {G.out_degree(node)}"
+        )
 
     # Adjust sizes to avoid overlap
     sizeref = 2.0 * max(node_sizes) / (100.0 ** 2)
@@ -85,18 +94,18 @@ def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
             sizemode="area",
             sizeref=sizeref
         ),
-        text=node_text,
+        text=node_customdata,
         hoverinfo="text"
     )
 
     # Add watermark text
-    watermark_text = "Map the Internet Project - Rabenher112 - 2025\nGenerated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    watermark_text = "Map the Internet Project - Rabenherz112 - Generated at " + datetime.now().strftime("%Y-%m-%d %H:%M")
     annotation_bottom_right = dict(
         xref="paper", yref="paper",
-        x=1, y=-0.1,  # Position at the bottom-right corner
+        x=0.99, y=0.01,
         text=watermark_text,
         showarrow=False,
-        font=dict(size=12, color="grey"),
+        font=dict(size=16, color="grey"),
         xanchor="right", yanchor="bottom"
     )
 
@@ -116,7 +125,7 @@ def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
     fig.write_html(output_html)
     fig.write_image(output_png, width=4096, height=2304)
 
-# Main function
+# Main workflow
 def main():
     conn = establish_db_connection()
     try:
