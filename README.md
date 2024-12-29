@@ -2,7 +2,7 @@
 
 ## Description
 
-I wanted to map the internet (websites) and show there connection to each other. This is a simple project that uses the networkx library to create a graph of websites and their connections. The graph is then visualized using the matplotlib library.
+I wanted to map the internet (websites) and show there connection to each other. This is a simple project that uses the networkx library and ploty to create a graph of websites and their connections. The graph is then visualized using the matplotlib library.
 
 As this is my first python project, I don't expect anything to be actually good. I just wanted to try out python and see what I can do with it.
 
