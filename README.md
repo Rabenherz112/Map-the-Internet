@@ -2,7 +2,7 @@
 
 ## Description
 
-I wanted to map the internet (websites) and show there connection to each other. This is a simple project that uses the networkx library and ploty to create a graph of websites and their connections. The graph is then visualized using the matplotlib library.
+I wanted to map the internet (websites) and show their connections to each other. This is a simple project that uses the `networkx` library to create a graph of websites and their connections. The graph is then visualized using the `plotly` library and saved as an HTML and PNG file. (I really don't recommend using the PNG file, as it doesn't have any usefull information, it's just a visual representation of the graph. The HTML file is the one you should look at.)
 
 As this is my first python project, I don't expect anything to be actually good. I just wanted to try out python and see what I can do with it.
 
@@ -12,10 +12,18 @@ This project is inspired by the [The Internet Map](https://internet-map.net/), w
 
 ## Where is the data?
 
-Since everything right now is WIP, and a lot of things are not final, I don't want to share the data yet. I will share the data once I actually have something to show and know what kind of data I need.
+The current [website](https://map-the-internet.theravenhub.com/) is unregularly updated with my data from the crawling process. This is neither the final website, the final data nor the final design. It's just a simple way to show the data I have collected so far (or testing some new features, ways to visualize the data, etc.). Expect the website to be down, not working properly, the data displayed there to be either randomly wiped, outdated or straight up wrong.
+
+Since everything right now is WIP, I will not share the raw data I have collected. This is mostly because I don't know what kind of data I need yet and what kind of data I want to collect. Once I have a better understanding of what I want to do with the data, I will share it.
+
 Until then, you can generate your own data by running first the `setup.py` script (to configure the DB needed) and then the `worker.py` script (to start the data collection).
 
 All the code is in the `src` folder.
+
+## Why are issues disabled?
+
+I have disabled issues for this repository because I don't know what I am doing. Even if I would enable the issues, I wouldn't know how to respond to them. I am still learning python and I don't have the knowledge to fix any issues that might arise.
+If you want to fix something, or have an improvment suggestion, feel free to fork the repository and create a pull request. (I know this might sound rather harsh, but I don't want to waste your time by creating issues that I can't respond / fix)
 
 ## License
 
