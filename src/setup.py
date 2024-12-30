@@ -69,6 +69,16 @@ def setup_tables(conn):
             )
         """)
 
+        # Create domain mappping table
+        cursor.execute("""
+            CREATE TABLE static_domain_mappings (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                old_domain VARCHAR(255) NOT NULL,
+                new_domain VARCHAR(255) NOT NULL,
+                wildcard BOOLEAN NOT NULL DEFAULT FALSE
+            );
+        """)
+
         conn.commit()
         logging.info("Tables created successfully.")
     except mariadb.Error as e:
@@ -97,6 +107,16 @@ def set_domain_link_limit(conn, limit):
         logging.error(f"Error setting domain link limit: {e}")
         conn.rollback()
 
+def set_domain_mapping(conn, old_domain, new_domain, wildcard=False):
+    try:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO static_domain_mappings (old_domain, new_domain, wildcard) VALUES (?, ?, ?)", (old_domain, new_domain, wildcard))
+        conn.commit()
+        logging.info(f"Domain mapping added successfully.")
+    except mariadb.Error as e:
+        logging.error(f"Error adding domain mapping: {e}")
+        conn.rollback()
+
 # Ask for custom rules
 def ask_for_rules(conn):
     while True:
@@ -109,6 +129,15 @@ def ask_for_rules(conn):
                 print("Please enter a non-negative integer.")
         except ValueError:
             print("Invalid input. Please enter an integer.")
+    
+    while True:
+        old_domain = input("Enter the old domain to map (or 'done' to finish): ").strip()
+        if old_domain.lower() == 'done':
+            break
+        new_domain = input("Enter the new domain to map: ").strip()
+        wildcard_input = input("Is this a wildcard mapping (using * )? (y/n): ").strip().lower()
+        wildcard = wildcard_input == 'y'
+        set_domain_mapping(conn, old_domain, new_domain, wildcard)
 
 if __name__ == "__main__":
     conn = connect_to_db()
@@ -125,6 +154,9 @@ if __name__ == "__main__":
     default_rules = input("Use default config rules? (y/n): ").strip().lower()
     if default_rules == "y":
         set_domain_link_limit(conn, 3500)
+        set_domain_mapping(conn, "x.com", "twitter.com")
+        set_domain_mapping(conn, "discord.gg", "discord.com")
+        set_domain_mapping(conn, "youtu.be", "youtube.com")
     else:
         ask_for_rules(conn)
 
