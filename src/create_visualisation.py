@@ -4,9 +4,34 @@ import mariadb
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+from collections import defaultdict
+from fnmatch import fnmatch
+from publicsuffix2 import get_sld
 
 # Load environment variables
 load_dotenv()
+
+# Fetch domain mappings from the database
+def fetch_static_mappings(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT old_domain, new_domain, wildcard FROM static_domain_mappings")
+    mappings = []
+    for old_domain, new_domain, wildcard in cursor.fetchall():
+        mappings.append((old_domain, new_domain, bool(wildcard)))
+    return mappings
+
+# Normalize domain (apply public suffix rules, static mappings, and wildcards)
+def normalize_domain(domain, static_mappings):
+    # Check for static mappings and wildcard matches
+    for old_domain, new_domain, is_wildcard in static_mappings:
+        if is_wildcard and fnmatch(domain, old_domain):
+            return new_domain
+        if not is_wildcard and domain == old_domain:
+            return new_domain
+
+    # Normalize subdomains to their "main domain" using public suffixes
+    main_domain = get_sld(domain)
+    return main_domain
 
 # Database connection setup
 def establish_db_connection():
@@ -25,31 +50,51 @@ def establish_db_connection():
 # Fetch data from MariaDB
 def fetch_graph_data(conn):
     cursor = conn.cursor()
+
+    # Fetch parent connection counts for each domain
+    cursor.execute(
+        """
+        SELECT d.domain, COUNT(dr.parent_id) AS parent_count
+        FROM domains d
+        LEFT JOIN domain_relationships dr ON d.id = dr.child_id
+        GROUP BY d.domain;
+        """
+    )
+    domain_sizes_raw = {row[0]: row[1] for row in cursor.fetchall()}
+
     cursor.execute("SELECT parent_id, child_id FROM domain_relationships")
-    relationships = cursor.fetchall()
+    relationships_raw = cursor.fetchall()
 
     cursor.execute("SELECT id, domain FROM domains")
-    domains = cursor.fetchall()
+    domains_raw = {id: domain for id, domain in cursor.fetchall()}
 
-    return relationships, {id: domain for id, domain in domains}
+    return relationships_raw, domains_raw, domain_sizes_raw
 
 # Generate graph visualization
-def generate_graph(relationships, domain_map):
+def generate_graph(relationships_raw, domains_raw, domain_sizes_raw, static_mappings):
     G = nx.DiGraph()
 
-    # Add nodes and edges
-    for domain_id, domain in domain_map.items():
-        G.add_node(domain, size=0)
+    # Normalize domain names and aggregate sizes
+    domain_sizes = defaultdict(int)
+    domain_map = {}
+    for domain_id, domain in domains_raw.items():
+        normalized_domain = normalize_domain(domain, static_mappings)
+        domain_map[domain_id] = normalized_domain
+        domain_sizes[normalized_domain] += domain_sizes_raw.get(domain, 0)
 
-    for parent_id, child_id in relationships:
+    # Add nodes with aggregated sizes
+    for domain, size in domain_sizes.items():
+        G.add_node(domain, size=size)
+
+    # Add edges using normalized domains
+    for parent_id, child_id in relationships_raw:
         parent_domain = domain_map.get(parent_id)
         child_domain = domain_map.get(child_id)
         if parent_domain and child_domain:
             G.add_edge(parent_domain, child_domain)
-            G.nodes[parent_domain]["size"] += 1
 
-    # Remove nodes with fewer than 2 parent connections
-    nodes_to_remove = [node for node, data in G.nodes(data=True) if data["size"] < 2]
+    # Remove nodes with fewer than 3 parent connections
+    nodes_to_remove = [node for node, data in G.nodes(data=True) if data["size"] < 3]
     G.remove_nodes_from(nodes_to_remove)
 
     # Calculate rankings based on size
@@ -115,7 +160,6 @@ def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
                         title="Map the Internet",
                         showlegend=False,
                         hovermode="closest",
-                        #template="plotly_dark",
                         margin=dict(b=0, l=0, r=0, t=40),
                         xaxis=dict(showgrid=False, zeroline=False, visible=False),
                         yaxis=dict(showgrid=False, zeroline=False, visible=False),
@@ -129,8 +173,9 @@ def create_plotly_graph(G, output_html="graph.html", output_png="graph.png"):
 def main():
     conn = establish_db_connection()
     try:
-        relationships, domain_map = fetch_graph_data(conn)
-        G = generate_graph(relationships, domain_map)
+        static_mappings = fetch_static_mappings(conn)
+        relationships_raw, domains_raw, domain_sizes_raw = fetch_graph_data(conn)
+        G = generate_graph(relationships_raw, domains_raw, domain_sizes_raw, static_mappings)
         create_plotly_graph(G)
         print("Graph generated successfully.")
     finally:
