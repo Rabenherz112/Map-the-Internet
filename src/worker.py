@@ -149,7 +149,7 @@ def extract_links_from_page(base_url):
             return soup
         except requests.HTTPError as e:
             if response.status_code == 404 and url.endswith('/') and not retried:
-                # Retry without the trailing slash - some servers return 404 for URLs with trailing slashes, since we add them in queue_link function, we can't be sure if the URL is valid (even though web servers should handle this correctly)
+                # Retry without the trailing slash
                 logging.debug(f"404 for {url}. Retrying without trailing slash.")
                 new_url = url.rstrip('/')
                 return fetch_and_parse(new_url, retried=True)
@@ -159,26 +159,37 @@ def extract_links_from_page(base_url):
             logging.error(f"Error fetching {url}: {e}")
             return None
 
-    soup = fetch_and_parse(base_url)
-    if not soup:
+    try:
+        soup = fetch_and_parse(base_url)
+        if not soup:
+            return None
+
+        links = set()
+        for a_tag in soup.find_all('a', href=True):
+            href = a_tag['href']
+            try:
+                # Resolve the full URL
+                absolute_url = urljoin(base_url, href)
+                parsed_url = urlparse(absolute_url)
+
+                if parsed_url.scheme in ["http", "https"]:
+                    # Validate the URL
+                    if not validators.url(absolute_url):
+                        logging.warning(f"Malformed URL detected and skipped: {absolute_url}")
+                        continue
+
+                    # Check if the URL is of a valid type
+                    if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".cfm", ".shtml", ".xhtml", ".rhtml", ".phtml", ".cgi", ".pl"]):
+                        links.add(absolute_url)
+            except ValueError as e:
+                logging.warning(f"Error parsing URL '{href}': {e}")
+                continue
+
+        return links
+    except Exception as e:
+        logging.error(f"Unexpected error in extract_links_from_page for {base_url}: {e}")
         return None
 
-    links = set()
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href']
-        absolute_url = urljoin(base_url, href)
-        parsed_url = urlparse(absolute_url)
-        if parsed_url.scheme in ["http", "https"]:
-            # Check if the URL is valid
-            # TODO: Check why some normal URLs are being flagged as invalid and fix the issue
-            # Examples: https://www.instructure.com/resources/product-overviews/enhanced-rubrics , https://www.deimeke.net/dirk/blog/index.php?/categories/31-fundstuecke , etc.
-            if not validators.url(absolute_url):
-                logging.warning(f"Malformed URL detected: {absolute_url}")
-                continue
-            # Check if the URL is a valid type
-            if any(parsed_url.path.endswith(ext) for ext in ["", "/", ".html", ".htm", ".php", ".asp", ".aspx", ".jsp", ".cfm", ".shtml", ".xhtml", ".rhtml", ".phtml", ".cgi", ".pl"]):
-                links.add(absolute_url)
-    return links
 
 # Add domains and relationships to the database
 def store_domain_and_relationship(conn, parent_url, child_url, domain_link_limit):
